@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Service) Visual(ctx context.Context, id, mode string) ([]byte, error) {
-	state, err := s.Store.Snapshot()
+	state, err := s.Persistence.Snapshot()
 	if err != nil {
 		return nil, err
 	}
@@ -17,7 +17,7 @@ func (s *Service) Visual(ctx context.Context, id, mode string) ([]byte, error) {
 	if !ok {
 		return nil, domain.Missing("source", id)
 	}
-	path, err := s.Blobs.Object(source.Digest)
+	path, err := s.Persistence.Lease(source.Digest)
 	if err != nil {
 		return nil, err
 	}

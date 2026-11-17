@@ -14,7 +14,7 @@ func (s *Service) SaveSheet(id string, expected int, input domain.Sheet) (domain
 		id = ID()
 	}
 	var out domain.Sheet
-	err := s.Store.Update(func(st *domain.State) error {
+	_, err := s.Persistence.Commit(func(st *domain.State) error {
 		versions := st.Sheets[id]
 		if len(versions) != expected {
 			return domain.Conflict("sheet revision changed")
@@ -39,7 +39,7 @@ func (s *Service) SaveSheet(id string, expected int, input domain.Sheet) (domain
 	return out, err
 }
 func (s *Service) Preview(sheetID, recipeID string) (domain.Plan, error) {
-	st, err := s.Store.Snapshot()
+	st, err := s.Persistence.Snapshot()
 	if err != nil {
 		return domain.Plan{}, err
 	}

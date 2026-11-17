@@ -1,7 +1,6 @@
 package encoding
 
 import (
-	"cadenceforge/internal/blob"
 	"cadenceforge/internal/domain"
 	"cadenceforge/internal/media"
 	"context"
@@ -11,15 +10,22 @@ import (
 	"time"
 )
 
-type Runner struct {
-	Binary string
-	Blobs  *blob.Store
+// SourceLocator resolves a frozen source digest to a readable local path.
+// The media process depends on this narrow port instead of a concrete
+// storage implementation.
+type SourceLocator interface {
+	Path(digest string) (string, error)
 }
 
-func (r Runner) Encode(ctx context.Context, render domain.Render, stage string) (string, error) {
+type Runner struct {
+	Binary  string
+	Sources SourceLocator
+}
+
+func (r Runner) Encode(ctx context.Context, render domain.Render, workspace string) (string, error) {
 	paths := map[string]string{}
 	for id, s := range render.Sources {
-		path, err := r.Blobs.Object(s.Digest)
+		path, err := r.Sources.Path(s.Digest)
 		if err != nil {
 			return "", err
 		}
@@ -29,7 +35,7 @@ func (r Runner) Encode(ctx context.Context, render domain.Render, stage string) 
 		paths[id] = path
 	}
 	name := "composition." + render.Recipe.Format
-	args, err := Arguments(render, paths, filepath.Join(stage, name))
+	args, err := Arguments(render, paths, filepath.Join(workspace, name))
 	if err != nil {
 		return "", err
 	}
@@ -38,7 +44,7 @@ func (r Runner) Encode(ctx context.Context, render domain.Render, stage string) 
 	if _, err = media.Run(ctx, r.Binary, args, 65536); err != nil {
 		return "", err
 	}
-	if err = os.WriteFile(filepath.Join(stage, "captions.vtt"), []byte(render.Plan.VTT), 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(workspace, "captions.vtt"), []byte(render.Plan.VTT), 0600); err != nil {
 		return "", err
 	}
 	return name, nil

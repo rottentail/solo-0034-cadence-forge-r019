@@ -13,18 +13,23 @@
       "path": "internal/service"
     },
     {
+      "id": "persistence",
+      "name": "应用持久化网关、有类型故障与工作区两阶段提交",
+      "path": "internal/persist"
+    },
+    {
       "id": "domain",
       "name": "媒体契约、版本与状态不变量",
       "path": "internal/domain"
     },
     {
       "id": "journal",
-      "name": "耐久状态、单实例锁与恢复",
+      "name": "耐久状态、单实例锁、私有故障副本与恢复",
       "path": "internal/journal"
     },
     {
       "id": "objects",
-      "name": "内容寻址接收与产物提升",
+      "name": "内容寻址对象、工作区与不透明集合提升",
       "path": "internal/blob"
     },
     {

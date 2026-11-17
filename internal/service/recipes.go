@@ -12,7 +12,7 @@ func (s *Service) SaveRecipe(id string, expected int, input domain.Recipe) (doma
 		id = ID()
 	}
 	var out domain.Recipe
-	err := s.Store.Update(func(st *domain.State) error {
+	_, err := s.Persistence.Commit(func(st *domain.State) error {
 		versions := st.Recipes[id]
 		if len(versions) != expected {
 			return domain.Conflict("recipe revision changed")

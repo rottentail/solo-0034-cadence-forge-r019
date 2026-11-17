@@ -25,7 +25,7 @@ func (s *Service) Submit(key string, request Request) (domain.Render, error) {
 	s.mutation.Lock()
 	defer s.mutation.Unlock()
 	var out domain.Render
-	err := s.Store.Update(func(st *domain.State) error {
+	_, err := s.Persistence.Commit(func(st *domain.State) error {
 		fingerprint := hash(request)
 		for _, r := range st.Renders {
 			if r.Key == key {

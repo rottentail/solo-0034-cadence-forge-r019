@@ -1,47 +1,58 @@
 package service
 
 import (
-	"cadenceforge/internal/blob"
 	"cadenceforge/internal/config"
-	"cadenceforge/internal/journal"
+	"cadenceforge/internal/domain"
 	"cadenceforge/internal/media"
+	"cadenceforge/internal/persist"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 )
 
 type Service struct {
-	Store    *journal.Store
-	Blobs    *blob.Store
-	Probe    media.Prober
-	Config   config.Config
-	mutation sync.Mutex
-	wake     chan struct{}
-	activeMu sync.Mutex
-	active   map[string]context.CancelFunc
+	Persistence *persist.Gateway
+	Probe       media.Prober
+	Config      config.Config
+	mutation    sync.Mutex
+	wake        chan struct{}
+	activeMu    sync.Mutex
+	active      map[string]context.CancelFunc
 }
 
 func New(c config.Config) (*Service, error) {
-	st, err := journal.Open(c.Root)
+	gateway, report, err := persist.OpenRoot(c.Root)
 	if err != nil {
 		return nil, err
 	}
-	blobs, err := blob.Open(c.Root)
-	if err != nil {
-		st.Close()
-		return nil, err
+	s := &Service{Persistence: gateway, Probe: media.Prober{Binary: c.FFprobe}, Config: c, wake: make(chan struct{}, 1), active: map[string]context.CancelFunc{}}
+	if report.Recovered {
+		slog.Warn("restart reconciled an unconfirmed state commit; fault copy matched committed bytes", "kind", "recovered")
 	}
-	s := &Service{Store: st, Blobs: blobs, Probe: media.Prober{Binary: c.FFprobe}, Config: c, wake: make(chan struct{}, 1), active: map[string]context.CancelFunc{}}
-	if err = st.Recover(); err != nil {
-		st.Close()
+	if report.RolledBack {
+		slog.Warn("restart discarded an unconfirmed state commit; prior committed history retained", "kind", "rolled-back")
+	}
+	if err = gateway.Recover(); err != nil {
+		gateway.Close()
 		return nil, err
 	}
 	return s, nil
 }
+
+// Snapshot is the read path offered to transport code; HTTP never touches
+// the persistence adapters directly.
+func (s *Service) Snapshot() (domain.State, error) {
+	return s.Persistence.Snapshot()
+}
+
+// Close releases persistence resources.
+func (s *Service) Close() error { return s.Persistence.Close() }
+
 func ID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

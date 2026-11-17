@@ -22,7 +22,7 @@ func (a API) submit(w http.ResponseWriter, r *http.Request) {
 	write(w, 202, v)
 }
 func (a API) render(w http.ResponseWriter, r *http.Request) {
-	st, err := a.Service.Store.Snapshot()
+	st, err := a.Service.Snapshot()
 	if err != nil {
 		failure(w, err)
 		return

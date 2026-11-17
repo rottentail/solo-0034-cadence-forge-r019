@@ -2,7 +2,9 @@ package transport
 
 import (
 	"cadenceforge/internal/domain"
+	"cadenceforge/internal/persist"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,7 +17,24 @@ func write(w http.ResponseWriter, status int, value any) {
 		slog.Warn("response write", "error", err)
 	}
 }
+
+// failure maps errors to stable HTTP responses. Persistence faults keep the
+// generic 500 status promised by the service contract but carry a distinct
+// code so a client never mistakes an unconfirmed commit for a clean
+// rejection that would justify blind resend.
 func failure(w http.ResponseWriter, err error) {
+	if f, ok := persist.AsFault(err); ok {
+		code := "persistence_failed"
+		switch {
+		case persist.IsUncertain(f):
+			code = "commit_unconfirmed"
+		case errors.Is(f, persist.StoreUnavailable):
+			code = "persistence_unavailable"
+		}
+		slog.Error("request failed", "error", err, "fault", code)
+		write(w, 500, map[string]string{"error": code, "message": f.Error()})
+		return
+	}
 	status, code, message := domain.Classify(err)
 	if status == 500 {
 		slog.Error("request failed", "error", err)

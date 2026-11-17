@@ -29,7 +29,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer s.Store.Close()
+	defer s.Close()
 	listener, err := net.Listen("tcp", c.Address)
 	if err != nil {
 		return err

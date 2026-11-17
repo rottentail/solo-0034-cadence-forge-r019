@@ -4,10 +4,10 @@ import (
 	"cadenceforge/internal/domain"
 	"cadenceforge/internal/encoding"
 	"cadenceforge/internal/inspect"
+	"cadenceforge/internal/persist"
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -59,7 +59,7 @@ func (s *Service) claim(cancel context.CancelFunc) (domain.Render, bool, error) 
 	defer s.mutation.Unlock()
 	var out domain.Render
 	found := false
-	err := s.Store.Update(func(st *domain.State) error {
+	_, err := s.Persistence.Commit(func(st *domain.State) error {
 		ids := []string{}
 		for id, r := range st.Renders {
 			if r.State == "queued" {
@@ -93,16 +93,25 @@ func (s *Service) claim(cancel context.CancelFunc) (domain.Render, bool, error) 
 	}
 	return out, found && err == nil, err
 }
+
+// sourcePaths implements encoding.SourceLocator using persistence leases,
+// keeping the media process ignorant of the content vault implementation.
+type sourcePaths struct{ gateway *persist.Gateway }
+
+func (l sourcePaths) Path(digest string) (string, error) { return l.gateway.Lease(digest) }
+
 func (s *Service) execute(ctx context.Context, r domain.Render) {
 	attempt := len(r.Attempts)
-	stage, err := s.Blobs.Staging(r.ID, attempt)
+	workspace, err := s.Persistence.BeginWorkspace()
 	if err != nil {
 		s.complete(r, nil, err)
 		return
 	}
-	defer os.RemoveAll(stage)
+	// A workspace that never commits is discarded; the vault itself still
+	// conservatively keeps any directory it could not remove.
+	defer s.Persistence.AbandonWorkspace(workspace)
 	for _, source := range r.Sources {
-		path, e := s.Blobs.Object(source.Digest)
+		path, e := s.Persistence.Lease(source.Digest)
 		if e != nil {
 			s.complete(r, nil, e)
 			return
@@ -117,13 +126,13 @@ func (s *Service) execute(ctx context.Context, r domain.Render) {
 			return
 		}
 	}
-	runner := encoding.Runner{Binary: s.Config.FFmpeg, Blobs: s.Blobs}
-	name, err := runner.Encode(ctx, r, stage)
+	runner := encoding.Runner{Binary: s.Config.FFmpeg, Sources: sourcePaths{gateway: s.Persistence}}
+	name, err := runner.Encode(ctx, r, workspace.Dir)
 	if err != nil {
 		s.complete(r, nil, err)
 		return
 	}
-	inspection, err := inspect.Artifact(ctx, s.Probe, filepath.Join(stage, name), r)
+	inspection, err := inspect.Artifact(ctx, s.Probe, filepath.Join(workspace.Dir, name), r)
 	if err != nil {
 		s.complete(r, nil, err)
 		return
@@ -131,19 +140,27 @@ func (s *Service) execute(ctx context.Context, r domain.Render) {
 	artifact := &domain.Artifact{Filename: name, CaptionFile: "captions.vtt", Inspection: inspection}
 	s.mutation.Lock()
 	defer s.mutation.Unlock()
-	st, err := s.Store.Snapshot()
+	st, err := s.Persistence.Snapshot()
 	if err != nil {
-		slog.Error("read before promotion", "error", err)
+		slog.Error("read before workspace commit", "error", err)
 		return
 	}
 	current, ok := st.Renders[r.ID]
 	if !ok || current.State != "running" || len(current.Attempts) != attempt {
 		return
 	}
-	if err = s.Blobs.Promote(stage, r.ID, attempt); err != nil {
+	// Phase 1: make the inspected bytes durable under an opaque set key.
+	key, err := persist.SetKey(r.ID, attempt)
+	if err != nil {
 		s.completeLocked(r, nil, err)
 		return
 	}
+	if err = s.Persistence.CommitWorkspace(workspace, key); err != nil {
+		s.completeLocked(r, nil, err)
+		return
+	}
+	// Phase 2: publish the domain fact referencing the committed set. A
+	// failure here leaves an unregistered set, never a false success.
 	s.completeLocked(r, artifact, nil)
 }
 func (s *Service) complete(r domain.Render, a *domain.Artifact, cause error) {
@@ -152,7 +169,7 @@ func (s *Service) complete(r domain.Render, a *domain.Artifact, cause error) {
 	s.completeLocked(r, a, cause)
 }
 func (s *Service) completeLocked(r domain.Render, a *domain.Artifact, cause error) {
-	err := s.Store.Update(func(st *domain.State) error {
+	_, err := s.Persistence.Commit(func(st *domain.State) error {
 		current, ok := st.Renders[r.ID]
 		if !ok || current.State != "running" || len(current.Attempts) != len(r.Attempts) {
 			return nil

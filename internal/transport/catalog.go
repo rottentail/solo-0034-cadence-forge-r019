@@ -10,7 +10,7 @@ func (a API) health(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, map[string]string{"status": "ready", "service": "cadence-forge", "schema": "1"})
 }
 func (a API) state(w http.ResponseWriter, r *http.Request) {
-	st, err := a.Service.Store.Snapshot()
+	st, err := a.Service.Snapshot()
 	if err != nil {
 		failure(w, err)
 		return
@@ -108,7 +108,7 @@ func (a API) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	st, err := a.Service.Store.Snapshot()
+	st, err := a.Service.Snapshot()
 	if err != nil {
 		failure(w, err)
 		return

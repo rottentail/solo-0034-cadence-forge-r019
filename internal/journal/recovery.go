@@ -6,7 +6,7 @@ import (
 )
 
 func (s *Store) Recover() error {
-	return s.Update(func(st *domain.State) error {
+	_, err := s.Update(func(st *domain.State) error {
 		for id, r := range st.Renders {
 			if r.State != "running" {
 				continue
@@ -24,4 +24,5 @@ func (s *Store) Recover() error {
 		}
 		return nil
 	})
+	return err
 }

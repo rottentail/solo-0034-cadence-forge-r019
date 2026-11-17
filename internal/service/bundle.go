@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"cadenceforge/internal/domain"
 	"cadenceforge/internal/inspect"
+	"cadenceforge/internal/persist"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 )
 
 func (s *Service) Artifact(id string) (domain.Render, string, error) {
-	st, err := s.Store.Snapshot()
+	st, err := s.Persistence.Snapshot()
 	if err != nil {
 		return domain.Render{}, "", err
 	}
@@ -24,7 +25,11 @@ func (s *Service) Artifact(id string) (domain.Render, string, error) {
 	if r.State != "succeeded" || r.Artifact == nil {
 		return r, "", domain.Conflict("render has no committed artifact")
 	}
-	dir, err := s.Blobs.RenderDir(id, len(r.Attempts))
+	key, err := persist.SetKey(id, len(r.Attempts))
+	if err != nil {
+		return r, "", err
+	}
+	dir, err := s.Persistence.SetLocation(key)
 	return r, dir, err
 }
 func (s *Service) Verify(ctx context.Context, id string) (domain.Inspection, error) {

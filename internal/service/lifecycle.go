@@ -9,7 +9,7 @@ func (s *Service) Cancel(id string) (domain.Render, error) {
 	s.mutation.Lock()
 	defer s.mutation.Unlock()
 	var out domain.Render
-	err := s.Store.Update(func(st *domain.State) error {
+	_, err := s.Persistence.Commit(func(st *domain.State) error {
 		r, ok := st.Renders[id]
 		if !ok {
 			return domain.Missing("render", id)
@@ -46,7 +46,7 @@ func (s *Service) Retry(id string) (domain.Render, error) {
 	s.mutation.Lock()
 	defer s.mutation.Unlock()
 	var out domain.Render
-	err := s.Store.Update(func(st *domain.State) error {
+	_, err := s.Persistence.Commit(func(st *domain.State) error {
 		r, ok := st.Renders[id]
 		if !ok {
 			return domain.Missing("render", id)
